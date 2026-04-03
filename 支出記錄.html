@@ -180,21 +180,18 @@ function setSyncStatus(s,txt){
 // 上傳單筆到 Google Sheets
 async function syncToSheets(entry){
   try{
-    await fetch(GAS_URL,{
-      method:'POST',
-      mode:'no-cors',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        id:entry.id,
-        cat:entry.cat,
-        label:entry.label,
-        emoji:entry.emoji,
-        amt:entry.amt,
-        dt:entry.dt,
-        note:entry.note||''
-      })
+    const params=new URLSearchParams({
+      id:entry.id,
+      cat:entry.cat,
+      label:entry.label,
+      emoji:entry.emoji,
+      amt:entry.amt,
+      dt:entry.dt,
+      note:entry.note||''
     });
-    // no-cors 無法讀 response，假設成功
+    const res=await fetch(GAS_URL+'?'+params.toString(),{method:'GET'});
+    const json=await res.json();
+    if(json.status!=='ok')throw new Error(json.msg||'error');
     entry.synced=true;
     saveData();
     updatePendingBar();
