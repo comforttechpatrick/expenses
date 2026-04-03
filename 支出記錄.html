@@ -171,7 +171,9 @@ function setSyncStatus(s,txt){
 
 // ✅ 全部用 GET 帶參數，避免 CORS 問題
 async function gasGet(params){
-  const url=GAS_URL+'?'+new URLSearchParams(params).toString();
+  const url=GAS_URL+'?'+Object.keys(params)
+    .map(k=>encodeURIComponent(k)+'='+encodeURIComponent(params[k]))
+    .join('&');
   const res=await fetch(url,{method:'GET'});
   return res.json();
 }
