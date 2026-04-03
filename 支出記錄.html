@@ -45,7 +45,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;ba
 .cat-filter-row{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px}
 .cf-btn{padding:5px 11px;border-radius:20px;border:1px solid #e5e5ea;font-size:12px;cursor:pointer;background:#fff;color:#636366;white-space:nowrap}
 .cf-btn.active{background:#007aff;color:#fff;border-color:#007aff}
-.day-header{font-size:12px;color:#636366;font-weight:600;padding:8px 4px 4px;margin-top:4px;text-transform:uppercase;letter-spacing:.3px}
+.day-header{font-size:12px;color:#636366;font-weight:600;padding:8px 4px 4px;margin-top:4px;letter-spacing:.3px}
 .entry{background:#fff;border-radius:14px;margin-bottom:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.07)}
 .entry-head{display:flex;align-items:center;padding:12px 14px;cursor:pointer;gap:11px}
 .entry-emoji{font-size:22px;flex-shrink:0}
@@ -156,30 +156,34 @@ const CATS=[
   {id:'其他',emoji:'📦',label:'其他'},
 ];
 
-// 類別ID對應emoji（從Sheets讀回來時用）
 const CAT_MAP={};
 CATS.forEach(c=>CAT_MAP[c.label]={id:c.id,emoji:c.emoji});
 
 let selCat='';
-let sheetData=[]; // 從Sheets讀回的資料
+let sheetData=[];
 let filterCat='';
 
-// 同步狀態
 function setSyncStatus(s,txt){
   const el=document.getElementById('sync-status');
   el.className='sync-pill '+s;
   el.textContent=txt;
 }
 
-// 從 Google Sheets 讀取所有資料
+// ✅ 全部用 GET 帶參數，避免 CORS 問題
+async function gasGet(params){
+  const url=GAS_URL+'?'+new URLSearchParams(params).toString();
+  const res=await fetch(url,{method:'GET'});
+  return res.json();
+}
+
+// 讀取所有資料
 async function fetchData(){
   setSyncStatus('ing','● 讀取中...');
-  document.getElementById('list').innerHTML='<div class="loading">載入中...</div>';
+  const listEl=document.getElementById('list');
+  if(listEl) listEl.innerHTML='<div class="loading">載入中...</div>';
   try{
-    const res=await fetch(GAS_URL,{method:'GET'});
-    const json=await res.json();
+    const json=await gasGet({action:'read'});
     if(json.status!=='ok') throw new Error(json.msg||'error');
-    // 轉換資料格式
     sheetData=json.data.map(r=>{
       const catInfo=CAT_MAP[r.label]||{id:'其他',emoji:'📦'};
       return {
@@ -191,16 +195,16 @@ async function fetchData(){
         dt: String(r.dt).replace(' ','T').slice(0,16),
         note: r.note||''
       };
-    }).reverse(); // 最新在最前
+    }).reverse();
     setSyncStatus('ok','● 已更新');
     renderList();
   }catch(e){
     setSyncStatus('err','● 讀取失敗');
-    document.getElementById('list').innerHTML='<div class="empty">讀取失敗，請檢查網絡</div>';
+    if(listEl) listEl.innerHTML='<div class="empty">讀取失敗，請檢查網絡</div>';
   }
 }
 
-// 新增記錄（POST 到 Sheets）
+// 新增記錄（GET 帶參數）
 async function addEntry(){
   if(!selCat){alert('請選擇類別');return}
   const amt=parseFloat(document.getElementById('inp-amt').value);
@@ -213,25 +217,18 @@ async function addEntry(){
   btn.disabled=true;
   btn.textContent='上傳中...';
   setSyncStatus('ing','● 同步中...');
-
-  const entry={
-    id: Date.now(),
-    cat: selCat,
-    label: cat.label,
-    emoji: cat.emoji,
-    amt, dt, note
-  };
-
   try{
-    const res=await fetch(GAS_URL,{
-      method:'POST',
-      body: JSON.stringify(entry)
+    const json=await gasGet({
+      action:'add',
+      id: Date.now(),
+      label: cat.label,
+      amt: amt,
+      dt: dt,
+      note: note||''
     });
-    const json=await res.json();
     if(json.status!=='ok') throw new Error(json.msg||'error');
     setSyncStatus('ok','● 已同步 Sheets');
     showToast('✅ 已記錄並同步到 Google Sheets');
-    // 重置表單
     document.getElementById('inp-amt').value='';
     document.getElementById('inp-note').value='';
     document.querySelectorAll('.cat-btn').forEach(x=>x.classList.remove('sel'));
@@ -245,27 +242,23 @@ async function addEntry(){
   btn.textContent='＋ 記錄支出';
 }
 
-// 刪除記錄（POST action:delete 到 Sheets）
+// 刪除記錄（GET 帶參數）
 async function delEntry(id){
   if(!confirm('確定刪除這筆記錄？')) return;
   setSyncStatus('ing','● 刪除中...');
   try{
-    const res=await fetch(GAS_URL,{
-      method:'POST',
-      body: JSON.stringify({action:'delete', id: String(id)})
-    });
-    const json=await res.json();
+    const json=await gasGet({action:'delete', id: String(id)});
     if(json.status!=='ok') throw new Error(json.msg||'error');
     setSyncStatus('ok','● 已刪除');
     showToast('🗑️ 已從 Google Sheets 刪除');
-    await fetchData(); // 重新讀取
+    await fetchData();
   }catch(e){
     setSyncStatus('err','● 刪除失敗');
     showToast('❌ 刪除失敗，請重試');
   }
 }
 
-// 渲染記錄列表（從 sheetData）
+// 渲染列表
 function renderList(){
   const from=document.getElementById('f-from').value;
   const to=document.getElementById('f-to').value;
@@ -333,7 +326,6 @@ function toggleDetail(id){
   if(det){chev.classList.toggle('open',det.classList.toggle('open'));}
 }
 
-// 篩選
 function clearFilter(){
   document.getElementById('f-from').value='';
   document.getElementById('f-to').value='';
@@ -350,7 +342,6 @@ function setCatFilter(id,el){
   renderList();
 }
 
-// 統計
 function buildMonthSelect(){
   const sel=document.getElementById('st-month');
   sel.innerHTML='';
@@ -408,10 +399,9 @@ function switchTab(t){
     el.classList.toggle('active',['add','view','stats'][i]===t);
   });
   if(t==='view') fetchData();
-  if(t==='stats'){fetchData().then(()=>{buildMonthSelect();renderStats();});}
+  if(t==='stats') fetchData().then(()=>{buildMonthSelect();renderStats();});
 }
 
-// Toast
 function showToast(msg){
   let t=document.getElementById('toast');
   if(!t){
@@ -426,7 +416,6 @@ function showToast(msg){
   t._timer=setTimeout(()=>{t.style.opacity='0'},2800);
 }
 
-// 類別格
 function buildCatGrid(){
   const g=document.getElementById('catGrid');
   g.innerHTML='';
@@ -443,7 +432,6 @@ function buildCatGrid(){
   });
 }
 
-// 類別篩選
 function buildCatFilter(){
   const el=document.getElementById('catFilter');
   el.innerHTML='<div class="cf-btn active" onclick="setCatFilter(\'\',this)">全部</div>';
@@ -456,7 +444,6 @@ function buildCatFilter(){
   });
 }
 
-// 預設當前時間
 function initDateTime(){
   const now=new Date();
   const pad=n=>String(n).padStart(2,'0');
@@ -465,7 +452,6 @@ function initDateTime(){
     'T'+pad(now.getHours())+':'+pad(now.getMinutes());
 }
 
-// 啟動
 buildCatGrid();
 buildCatFilter();
 initDateTime();
